@@ -1,6 +1,8 @@
 package com.example.foldpadhid
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -48,6 +50,15 @@ class MainActivity : ComponentActivity() {
                     shizukuState = shizukuState,
                     hidController = hidController,
                     onRequestPermissions = { requestBluetoothPermissions() },
+                    onMakeDiscoverable = { makeDiscoverable() },
+                    onAuthorizeShizuku = {
+                        shizukuController.refreshAvailability()
+                        if (!shizukuState.shizukuAuthorized) {
+                            shizukuController.requestPermission()
+                        } else {
+                            shizukuController.bindDisplayService()
+                        }
+                    },
                     onToggleDualScreen = { enable ->
                         shizukuController.setCoverScreenAwake(enable)
                         if (enable) showCoverPresentation() else dismissCoverPresentation()
@@ -55,6 +66,19 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        shizukuController.refreshAvailability()
+        hidController.refreshBondedDevices()
+    }
+
+    private fun makeDiscoverable() {
+        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+            putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 120)
+        }
+        runCatching { startActivity(intent) }
     }
 
     private fun requestBluetoothPermissions() {

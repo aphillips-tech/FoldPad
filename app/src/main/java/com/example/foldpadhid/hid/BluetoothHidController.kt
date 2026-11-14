@@ -15,6 +15,7 @@ import java.util.concurrent.Executors
 
 data class HidConnectionState(
     val registered: Boolean = false,
+    val connectionStatus: String = "Idle",
     val connectedDevice: BluetoothDevice? = null,
     val bondedDevices: List<BluetoothDevice> = emptyList(),
     val lastReportHex: String = "--"
@@ -44,7 +45,8 @@ class BluetoothHidController(private val context: Context) {
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
             _state.value = _state.value.copy(
                 registered = registered,
-                bondedDevices = adapter?.bondedDevices?.toList().orEmpty()
+                connectionStatus = if (registered) "HID Profile Registered" else "Unregistered",
+                bondedDevices = safeBondedDevices()
             )
             if (registered && pluggedDevice != null) {
                 hidDevice?.connect(pluggedDevice)
@@ -53,9 +55,16 @@ class BluetoothHidController(private val context: Context) {
 
         override fun onConnectionStateChanged(device: BluetoothDevice?, state: Int) {
             val active = if (state == BluetoothProfile.STATE_CONNECTED) device else null
+            val statusText = when (state) {
+                BluetoothProfile.STATE_CONNECTED -> "Connected to ${device?.name ?: "Host"}"
+                BluetoothProfile.STATE_CONNECTING -> "Connecting to ${device?.name ?: "Host"}..."
+                BluetoothProfile.STATE_DISCONNECTING -> "Disconnecting..."
+                else -> "Ready (Tap a paired host or make discoverable)"
+            }
             _state.value = _state.value.copy(
                 connectedDevice = active,
-                bondedDevices = adapter?.bondedDevices?.toList().orEmpty()
+                connectionStatus = statusText,
+                bondedDevices = safeBondedDevices()
             )
         }
     }
@@ -65,29 +74,48 @@ class BluetoothHidController(private val context: Context) {
             if (profile == BluetoothProfile.HID_DEVICE) {
                 hidDevice = proxy as? BluetoothHidDevice
                 hidDevice?.registerApp(sdpSettings, null, null, executor, hidCallback)
+                refreshBondedDevices()
             }
         }
 
         override fun onServiceDisconnected(profile: Int) {
             if (profile == BluetoothProfile.HID_DEVICE) {
                 hidDevice = null
-                _state.value = _state.value.copy(registered = false, connectedDevice = null)
+                _state.value = _state.value.copy(
+                    registered = false,
+                    connectedDevice = null,
+                    connectionStatus = "HID Service Disconnected"
+                )
             }
         }
     }
 
+    private fun safeBondedDevices(): List<BluetoothDevice> {
+        return runCatching { adapter?.bondedDevices?.toList().orEmpty() }.getOrDefault(emptyList())
+    }
+
+    fun refreshBondedDevices() {
+        _state.value = _state.value.copy(bondedDevices = safeBondedDevices())
+    }
+
     fun start() {
+        refreshBondedDevices()
         adapter?.getProfileProxy(context, profileListener, BluetoothProfile.HID_DEVICE)
     }
 
     fun stop() {
-        hidDevice?.unregisterApp()
-        adapter?.closeProfileProxy(BluetoothProfile.HID_DEVICE, hidDevice)
+        runCatching { hidDevice?.unregisterApp() }
+        runCatching { adapter?.closeProfileProxy(BluetoothProfile.HID_DEVICE, hidDevice) }
         hidDevice = null
     }
 
     fun connectHost(device: BluetoothDevice) {
+        _state.value = _state.value.copy(connectionStatus = "Connecting to ${device.name ?: device.address}...")
         hidDevice?.connect(device)
+    }
+
+    fun disconnectHost(device: BluetoothDevice) {
+        hidDevice?.disconnect(device)
     }
 
     fun sendMouseReport(buttons: Int, dx: Int, dy: Int, wheel: Int = 0, pan: Int = 0) {
@@ -111,6 +139,66 @@ class BluetoothHidController(private val context: Context) {
         val release = ByteArray(8)
         dispatchReport(HidDescriptors.REPORT_ID_KEYBOARD, press)
         dispatchReport(HidDescriptors.REPORT_ID_KEYBOARD, release)
+    }
+
+    fun sendAsciiChar(ch: Char, extraModifiers: Int = 0) {
+        val mapped = asciiToHidUsage(ch) ?: return
+        val (shiftBit, usage) = mapped
+        sendKeyTap(extraModifiers or shiftBit, usage)
+    }
+
+    private fun asciiToHidUsage(ch: Char): Pair<Int, Int>? {
+        val shift = 0x02
+        return when (ch) {
+            in 'a'..'z' -> 0 to (0x04 + (ch - 'a'))
+            in 'A'..'Z' -> shift to (0x04 + (ch - 'A'))
+            '1' -> 0 to 0x1E
+            '!' -> shift to 0x1E
+            '2' -> 0 to 0x1F
+            '@' -> shift to 0x1F
+            '3' -> 0 to 0x20
+            '#' -> shift to 0x20
+            '4' -> 0 to 0x21
+            '$' -> shift to 0x21
+            '5' -> 0 to 0x22
+            '%' -> shift to 0x22
+            '6' -> 0 to 0x23
+            '^' -> shift to 0x23
+            '7' -> 0 to 0x24
+            '&' -> shift to 0x24
+            '8' -> 0 to 0x25
+            '*' -> shift to 0x25
+            '9' -> 0 to 0x26
+            '(' -> shift to 0x26
+            '0' -> 0 to 0x27
+            ')' -> shift to 0x27
+            '\n' -> 0 to 0x28
+            '\t' -> 0 to 0x2B
+            ' ' -> 0 to 0x2C
+            '-' -> 0 to 0x2D
+            '_' -> shift to 0x2D
+            '=' -> 0 to 0x2E
+            '+' -> shift to 0x2E
+            '[' -> 0 to 0x2F
+            '{' -> shift to 0x2F
+            ']' -> 0 to 0x30
+            '}' -> shift to 0x30
+            '\\' -> 0 to 0x31
+            '|' -> shift to 0x31
+            ';' -> 0 to 0x33
+            ':' -> shift to 0x33
+            '\'' -> 0 to 0x34
+            '"' -> shift to 0x34
+            '\u0060' -> 0 to 0x35
+            '~' -> shift to 0x35
+            ',' -> 0 to 0x36
+            '<' -> shift to 0x36
+            '.' -> 0 to 0x37
+            '>' -> shift to 0x37
+            '/' -> 0 to 0x38
+            '?' -> shift to 0x38
+            else -> null
+        }
     }
 
     fun sendConsumerTap(usage16: Int) {

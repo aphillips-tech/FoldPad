@@ -117,6 +117,10 @@ class ShizukuDualScreenController(private val context: Context) {
 
     fun findSecondaryDisplay(): Display? {
         val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        return dm.displays.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }
+        val builtIn = runCatching {
+            dm.getDisplays("com.samsung.android.hardware.display.category.BUILTIN").toList()
+        }.getOrDefault(emptyList())
+        return builtIn.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }
+            ?: dm.displays.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }
     }
 }

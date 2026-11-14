@@ -3,6 +3,7 @@ package com.example.foldpadhid.shizuku
 import android.annotation.SuppressLint
 import android.os.Build
 import android.os.IBinder
+import dalvik.system.PathClassLoader
 import kotlin.system.exitProcess
 
 /**
@@ -14,47 +15,52 @@ import kotlin.system.exitProcess
 @SuppressLint("PrivateApi", "BlockedPrivateApi")
 class DisplayControlUserService : IDisplayControlService.Stub() {
 
-    private fun resolveDisplayControlClass(): Class<*>? {
-        return runCatching {
-            if (Build.VERSION.SDK_INT >= 34) {
-                Class.forName("com.android.server.display.DisplayControl")
-            } else {
-                null
-            }
-        }.getOrNull() ?: runCatching {
-            Class.forName("android.view.SurfaceControl")
-        }.getOrNull()
+    private val displayControlClass: Class<*>? by lazy {
+        if (Build.VERSION.SDK_INT >= 34) {
+            runCatching {
+                PathClassLoader("/system/framework/services.jar", ClassLoader.getSystemClassLoader())
+                    .loadClass("com.android.server.display.DisplayControl")
+            }.getOrNull()
+        } else {
+            null
+        }
+    }
+
+    private val surfaceControlClass: Class<*> by lazy {
+        Class.forName("android.view.SurfaceControl")
     }
 
     override fun getPhysicalDisplayIds(): LongArray {
-        val surfaceControl = Class.forName("android.view.SurfaceControl")
-        val method = runCatching {
-            surfaceControl.getMethod("getPhysicalDisplayIds")
-        }.getOrNull() ?: resolveDisplayControlClass()?.getMethod("getPhysicalDisplayIds")
+        val scIds = runCatching {
+            surfaceControlClass.getMethod("getPhysicalDisplayIds").invoke(null) as? LongArray
+        }.getOrNull()
+        if (scIds != null && scIds.isNotEmpty()) return scIds
 
-        return (method?.invoke(null) as? LongArray) ?: longArrayOf()
+        val dcIds = runCatching {
+            displayControlClass?.getMethod("getPhysicalDisplayIds")?.invoke(null) as? LongArray
+        }.getOrNull()
+        return dcIds ?: longArrayOf()
     }
 
     private fun getPhysicalDisplayToken(physicalId: Long): IBinder? {
-        val surfaceControl = Class.forName("android.view.SurfaceControl")
-        val scMethod = runCatching {
-            surfaceControl.getMethod("getPhysicalDisplayToken", Long::class.javaPrimitiveType)
+        val scToken = runCatching {
+            surfaceControlClass
+                .getMethod("getPhysicalDisplayToken", Long::class.javaPrimitiveType)
+                .invoke(null, physicalId) as? IBinder
         }.getOrNull()
-        if (scMethod != null) {
-            return scMethod.invoke(null, physicalId) as? IBinder
-        }
-        val dcClass = resolveDisplayControlClass() ?: return null
-        val dcMethod = runCatching {
-            dcClass.getMethod("getPhysicalDisplayToken", Long::class.javaPrimitiveType)
+        if (scToken != null) return scToken
+
+        return runCatching {
+            displayControlClass
+                ?.getMethod("getPhysicalDisplayToken", Long::class.javaPrimitiveType)
+                ?.invoke(null, physicalId) as? IBinder
         }.getOrNull()
-        return dcMethod?.invoke(null, physicalId) as? IBinder
     }
 
     override fun setPhysicalDisplayPowerMode(physicalDisplayId: Long, mode: Int): Boolean {
         return runCatching {
             val token = getPhysicalDisplayToken(physicalDisplayId) ?: return false
-            val surfaceControl = Class.forName("android.view.SurfaceControl")
-            val setPower = surfaceControl.getMethod(
+            val setPower = surfaceControlClass.getMethod(
                 "setDisplayPowerMode",
                 IBinder::class.java,
                 Int::class.javaPrimitiveType
@@ -67,8 +73,7 @@ class DisplayControlUserService : IDisplayControlService.Stub() {
     override fun setDisplayBrightness(physicalDisplayId: Long, brightness: Float): Boolean {
         return runCatching {
             val token = getPhysicalDisplayToken(physicalDisplayId) ?: return false
-            val surfaceControl = Class.forName("android.view.SurfaceControl")
-            val setBright = surfaceControl.getMethod(
+            val setBright = surfaceControlClass.getMethod(
                 "setDisplayBrightness",
                 IBinder::class.java,
                 Float::class.javaPrimitiveType
