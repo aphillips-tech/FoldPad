@@ -45,7 +45,9 @@ class ShizukuDualScreenController(private val context: Context) {
                 physicalDisplayIds = ids,
                 lastError = null
             )
-            setCoverScreenAwake(true, 0.65f)
+            if (true) {
+                setCoverScreenAwake(true, 0.65f)
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -100,8 +102,9 @@ class ShizukuDualScreenController(private val context: Context) {
     fun setCoverScreenAwake(awake: Boolean, brightness: Float = 0.65f) {
         val svc = service ?: return
         val ids = _state.value.physicalDisplayIds
+        // On Samsung Galaxy Z Fold 5: index 0 is primary inner display, index 1 is outer cover panel
         val coverId = ids.getOrNull(1) ?: return
-        val mode = if (awake) 2 else 0
+        val mode = if (awake) 2 /* POWER_MODE_NORMAL */ else 0 /* POWER_MODE_OFF */
         val ok = runCatching {
             val powered = svc.setPhysicalDisplayPowerMode(coverId, mode)
             if (powered && awake) {

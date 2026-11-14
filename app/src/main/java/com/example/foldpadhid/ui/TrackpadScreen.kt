@@ -42,6 +42,7 @@ fun TrackpadScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // Header Status Strip
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -74,6 +75,7 @@ fun TrackpadScreen(
             }
         }
 
+        // Precision Multi-Touch Trackpad Surface
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -119,6 +121,7 @@ fun TrackpadScreen(
             }
         }
 
+        // Left / Middle / Right Mouse Buttons
         Row(
             modifier = Modifier.fillMaxWidth().height(52.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -145,6 +148,7 @@ fun TrackpadScreen(
             }
         }
 
+        // Quick Modifier + Action Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)

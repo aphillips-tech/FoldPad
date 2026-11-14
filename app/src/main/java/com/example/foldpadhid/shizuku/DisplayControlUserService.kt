@@ -5,6 +5,12 @@ import android.os.Build
 import android.os.IBinder
 import kotlin.system.exitProcess
 
+/**
+ * Runs inside Shizuku's privileged shell process (UID 2000).
+ * Keeps the Galaxy Z Fold 5 outer cover display powered on while unfolded
+ * so the inner 7.6" panel acts as Trackpad/Keyboard and the outer 6.2" panel
+ * acts as a dedicated Macro Deck.
+ */
 @SuppressLint("PrivateApi", "BlockedPrivateApi")
 class DisplayControlUserService : IDisplayControlService.Stub() {
 
