@@ -13,7 +13,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.Executors
 
+enum class HidProfileMode {
+    COMBO,
+    GAMEPAD
+}
+
 data class HidConnectionState(
+    val profileMode: HidProfileMode = HidProfileMode.COMBO,
     val registered: Boolean = false,
     val connectionStatus: String = "Idle",
     val connectedDevice: BluetoothDevice? = null,
@@ -29,37 +35,72 @@ class BluetoothHidController(private val context: Context) {
     private val executor = Executors.newSingleThreadExecutor()
 
     private var hidDevice: BluetoothHidDevice? = null
+    private var pendingModeSwitch: HidProfileMode? = null
+    private var lastTargetDevice: BluetoothDevice? = null
 
     private val _state = MutableStateFlow(HidConnectionState())
     val state: StateFlow<HidConnectionState> = _state.asStateFlow()
 
-    private val sdpSettings = BluetoothHidDeviceAppSdpSettings(
-        "FoldPadHID",
-        "Galaxy Z Fold Dual-Screen Trackpad & Keyboard",
-        "FoldPadHID",
-        BluetoothHidDevice.SUBCLASS1_COMBO,
-        HidDescriptors.COMPOSITE_DESCRIPTOR
-    )
+    private fun buildSdpSettings(mode: HidProfileMode): BluetoothHidDeviceAppSdpSettings {
+        return when (mode) {
+            HidProfileMode.COMBO -> BluetoothHidDeviceAppSdpSettings(
+                "FoldPadHID",
+                "Galaxy Z Fold Dual-Screen Trackpad & Keyboard",
+                "FoldPadHID",
+                BluetoothHidDevice.SUBCLASS1_COMBO,
+                HidDescriptors.COMPOSITE_DESCRIPTOR
+            )
+            HidProfileMode.GAMEPAD -> BluetoothHidDeviceAppSdpSettings(
+                "FoldPadHID Pad",
+                "Bluetooth HID Dual-Stick Gamepad Controller",
+                "FoldPadHID",
+                BluetoothHidDevice.SUBCLASS2_GAMEPAD,
+                HidDescriptors.GAMEPAD_DESCRIPTOR
+            )
+        }
+    }
 
     private val hidCallback = object : BluetoothHidDevice.Callback() {
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
+            val nextSwitch = pendingModeSwitch
+            if (!registered && nextSwitch != null) {
+                pendingModeSwitch = null
+                _state.value = _state.value.copy(
+                    profileMode = nextSwitch,
+                    registered = false,
+                    connectionStatus = "Registering ${nextSwitch.name} HID profile..."
+                )
+                hidDevice?.registerApp(buildSdpSettings(nextSwitch), null, null, executor, this)
+                return
+            }
+
             _state.value = _state.value.copy(
                 registered = registered,
-                connectionStatus = if (registered) "HID Profile Registered" else "Unregistered",
+                connectionStatus = if (registered) {
+                    if (_state.value.profileMode == HidProfileMode.GAMEPAD) {
+                        "Gamepad Profile Active (Re-pair PC once if OS cached Trackpad)"
+                    } else {
+                        "Trackpad + Keyboard Profile Active"
+                    }
+                } else {
+                    "Unregistered"
+                },
                 bondedDevices = safeBondedDevices()
             )
-            if (registered && pluggedDevice != null) {
-                hidDevice?.connect(pluggedDevice)
+            val target = pluggedDevice ?: lastTargetDevice
+            if (registered && target != null) {
+                hidDevice?.connect(target)
             }
         }
 
         override fun onConnectionStateChanged(device: BluetoothDevice?, state: Int) {
             val active = if (state == BluetoothProfile.STATE_CONNECTED) device else null
+            if (active != null) lastTargetDevice = active
             val statusText = when (state) {
-                BluetoothProfile.STATE_CONNECTED -> "Connected to ${device?.name ?: "Host"}"
+                BluetoothProfile.STATE_CONNECTED -> "Connected (${_state.value.profileMode.name}) to ${device?.name ?: "Host"}"
                 BluetoothProfile.STATE_CONNECTING -> "Connecting to ${device?.name ?: "Host"}..."
                 BluetoothProfile.STATE_DISCONNECTING -> "Disconnecting..."
-                else -> "Ready (Tap a paired host or make discoverable)"
+                else -> "Ready (${_state.value.profileMode.name}) — Tap a paired host or Pair"
             }
             _state.value = _state.value.copy(
                 connectedDevice = active,
@@ -73,7 +114,7 @@ class BluetoothHidController(private val context: Context) {
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile?) {
             if (profile == BluetoothProfile.HID_DEVICE) {
                 hidDevice = proxy as? BluetoothHidDevice
-                hidDevice?.registerApp(sdpSettings, null, null, executor, hidCallback)
+                hidDevice?.registerApp(buildSdpSettings(_state.value.profileMode), null, null, executor, hidCallback)
                 refreshBondedDevices()
             }
         }
@@ -110,12 +151,58 @@ class BluetoothHidController(private val context: Context) {
     }
 
     fun connectHost(device: BluetoothDevice) {
+        lastTargetDevice = device
         _state.value = _state.value.copy(connectionStatus = "Connecting to ${device.name ?: device.address}...")
         hidDevice?.connect(device)
     }
 
     fun disconnectHost(device: BluetoothDevice) {
         hidDevice?.disconnect(device)
+    }
+
+    fun switchProfileMode(targetMode: HidProfileMode) {
+        if (_state.value.profileMode == targetMode) return
+        val device = hidDevice
+        if (device == null) {
+            _state.value = _state.value.copy(profileMode = targetMode)
+            return
+        }
+        lastTargetDevice = _state.value.connectedDevice ?: lastTargetDevice
+        if (_state.value.registered) {
+            pendingModeSwitch = targetMode
+            _state.value = _state.value.copy(
+                profileMode = targetMode,
+                connectionStatus = "Switching HID descriptor to ${targetMode.name}..."
+            )
+            device.unregisterApp()
+        } else {
+            _state.value = _state.value.copy(profileMode = targetMode)
+            device.registerApp(buildSdpSettings(targetMode), null, null, executor, hidCallback)
+        }
+    }
+
+    fun sendGamepadReport(
+        buttonsMask: Int,
+        hat: Int,
+        lx: Int,
+        ly: Int,
+        rx: Int,
+        ry: Int,
+        l2: Int,
+        r2: Int
+    ) {
+        val payload = byteArrayOf(
+            (buttonsMask and 0xFF).toByte(),
+            ((buttonsMask ushr 8) and 0xFF).toByte(),
+            (hat and 0x0F).toByte(),
+            lx.coerceIn(-127, 127).toByte(),
+            ly.coerceIn(-127, 127).toByte(),
+            rx.coerceIn(-127, 127).toByte(),
+            ry.coerceIn(-127, 127).toByte(),
+            l2.coerceIn(0, 255).toByte(),
+            r2.coerceIn(0, 255).toByte()
+        )
+        dispatchReport(HidDescriptors.REPORT_ID_GAMEPAD, payload)
     }
 
     fun sendMouseReport(buttons: Int, dx: Int, dy: Int, wheel: Int = 0, pan: Int = 0) {

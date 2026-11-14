@@ -13,8 +13,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.example.foldpadhid.hid.BluetoothHidController
+import com.example.foldpadhid.hid.HidProfileMode
 import com.example.foldpadhid.shizuku.ShizukuDualScreenController
 import com.example.foldpadhid.ui.CoverMacroPresentation
+import com.example.foldpadhid.ui.GamepadScreen
 import com.example.foldpadhid.ui.TrackpadScreen
 
 class MainActivity : ComponentActivity() {
@@ -45,25 +47,42 @@ class MainActivity : ComponentActivity() {
                 val hidState by hidController.state.collectAsState()
                 val shizukuState by shizukuController.state.collectAsState()
 
-                TrackpadScreen(
-                    hidState = hidState,
-                    shizukuState = shizukuState,
-                    hidController = hidController,
-                    onRequestPermissions = { requestBluetoothPermissions() },
-                    onMakeDiscoverable = { makeDiscoverable() },
-                    onAuthorizeShizuku = {
-                        shizukuController.refreshAvailability()
-                        if (!shizukuState.shizukuAuthorized) {
-                            shizukuController.requestPermission()
-                        } else {
-                            shizukuController.bindDisplayService()
-                        }
-                    },
-                    onToggleDualScreen = { enable ->
-                        shizukuController.setCoverScreenAwake(enable)
-                        if (enable) showCoverPresentation() else dismissCoverPresentation()
+                when (hidState.profileMode) {
+                    HidProfileMode.COMBO -> {
+                        TrackpadScreen(
+                            hidState = hidState,
+                            shizukuState = shizukuState,
+                            hidController = hidController,
+                            onRequestPermissions = { requestBluetoothPermissions() },
+                            onMakeDiscoverable = { makeDiscoverable() },
+                            onAuthorizeShizuku = {
+                                shizukuController.refreshAvailability()
+                                if (!shizukuState.shizukuAuthorized) {
+                                    shizukuController.requestPermission()
+                                } else {
+                                    shizukuController.bindDisplayService()
+                                }
+                            },
+                            onToggleDualScreen = { enable ->
+                                shizukuController.setCoverScreenAwake(enable)
+                                if (enable) showCoverPresentation() else dismissCoverPresentation()
+                            },
+                            onSwitchToGamepad = {
+                                hidController.switchProfileMode(HidProfileMode.GAMEPAD)
+                            }
+                        )
                     }
-                )
+                    HidProfileMode.GAMEPAD -> {
+                        GamepadScreen(
+                            hidState = hidState,
+                            hidController = hidController,
+                            onMakeDiscoverable = { makeDiscoverable() },
+                            onSwitchToTrackpad = {
+                                hidController.switchProfileMode(HidProfileMode.COMBO)
+                            }
+                        )
+                    }
+                }
             }
         }
     }

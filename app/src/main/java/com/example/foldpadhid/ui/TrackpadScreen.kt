@@ -35,7 +35,8 @@ fun TrackpadScreen(
     onRequestPermissions: () -> Unit,
     onMakeDiscoverable: () -> Unit,
     onAuthorizeShizuku: () -> Unit,
-    onToggleDualScreen: (Boolean) -> Unit
+    onToggleDualScreen: (Boolean) -> Unit,
+    onSwitchToGamepad: () -> Unit
 ) {
     val sensitivity = 1.40f
     val scrollDir = -1
@@ -58,31 +59,50 @@ fun TrackpadScreen(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Header Status Strip
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "FoldPadHID",
-                    color = Color.White,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = hidState.connectionStatus,
-                    color = if (hidState.connectedDevice != null) Color(0xFF34D399) else Color(0xFF94A3B8),
-                    fontSize = 12.sp
-                )
+        // Header Status Strip & Mode Controls
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "FoldPadHID · Trackpad Mode",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = hidState.connectionStatus,
+                        color = if (hidState.connectedDevice != null) Color(0xFF34D399) else Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        maxLines = 2
+                    )
+                }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = onMakeDiscoverable) {
-                    Text("Pair / Discover", fontSize = 12.sp)
-                }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Button(
+                    onClick = onSwitchToGamepad,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("Gamepad Mode", fontSize = 12.sp, maxLines = 1)
+                }
+                OutlinedButton(
+                    onClick = onMakeDiscoverable,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("Pair", fontSize = 12.sp, maxLines = 1)
+                }
+                FilledTonalButton(
                     onClick = {
                         when {
                             !shizukuState.shizukuAvailable -> onAuthorizeShizuku()
@@ -90,9 +110,10 @@ fun TrackpadScreen(
                             !shizukuState.serviceBound -> onAuthorizeShizuku()
                             else -> onToggleDualScreen(!shizukuState.coverDisplayActive)
                         }
-                    }
+                    },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Text(shizukuLabel, fontSize = 12.sp)
+                    Text(shizukuLabel, fontSize = 12.sp, maxLines = 1)
                 }
             }
         }
